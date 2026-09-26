@@ -18,6 +18,9 @@ import { useAuth } from '@/context/auth-context';
 import { usePlotTelemetry } from '@/hooks/use-plot-telemetry';
 import { MoistureChart } from '@/components/telemetry/moisture-chart';
 import { ThresholdEditorModal } from '@/components/telemetry/threshold-editor-modal';
+import { usePlotValves, ValveWithCommand } from '@/hooks/use-plot-valves';
+import { ValvesSection } from '@/components/irrigation/valves-section';
+import { IrrigationCommandModal } from '@/components/irrigation/irrigation-command-modal';
 
 export default function PlotDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -29,6 +32,8 @@ export default function PlotDetailScreen() {
   const [plotError, setPlotError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showThresholdModal, setShowThresholdModal] = useState(false);
+  const [selectedValveForCommand, setSelectedValveForCommand] = useState<ValveWithCommand | null>(null);
+  const [showCommandModal, setShowCommandModal] = useState<boolean>(false);
 
   // Carga de metadatos del lote
   const loadPlot = useCallback(async () => {
@@ -73,17 +78,29 @@ export default function PlotDetailScreen() {
     refreshTelemetry,
   } = usePlotTelemetry(id as string, thresholdMin, thresholdMax);
 
+  // Hook de Válvulas y Control de Riego en Tiempo Real (RF-13, RF-14, RF-15, RF-16)
+  const {
+    valves,
+    isLoading: loadingValves,
+    activeFeedback,
+    sendCommand,
+    resolvePendingCommand,
+    dismissFeedback,
+    refreshValves,
+  } = usePlotValves(id as string);
+
   // Hook de Geolocalización (RF-06)
   const { currentPlot } = useLocation(plot ? [{ ...plot, geojson: null, status: 'optimal', last_measured_at: null, last_moisture_pct: null, last_temp_c: null, last_rain_mm: null }] : []);
   const isUserHere = currentPlot?.id === id;
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([loadPlot(), refreshTelemetry()]);
+    await Promise.all([loadPlot(), refreshTelemetry(), refreshValves()]);
     setRefreshing(false);
   };
 
   const isProducer = currentRole === 'producer';
+  const isAdvisor = currentRole === 'advisor';
   const semaforo = getSemaforoInfo(status);
 
   if (loadingPlot) {
@@ -255,14 +272,19 @@ export default function PlotDetailScreen() {
           </View>
         </View>
 
-        {/* Banner para la Iteración 5 */}
-        <View style={styles.nextCard}>
-          <Text style={styles.nextTitle}>Módulo de Riego (Siguiente Paso)</Text>
-          <Text style={styles.nextText}>
-            En la <Text style={{ fontWeight: 'bold' }}>Iteración 5</Text> implementaremos las válvulas del lote,
-            el formulario de comando de riego con duración (1–120 min) y el acuse asíncrono en ≤ 5 s (RF-13 a RF-16).
-          </Text>
-        </View>
+        {/* Módulo de Válvulas y Riego en Tiempo Real (RF-13, RF-14, RF-15, RF-16) */}
+        <ValvesSection
+          valves={valves}
+          isLoading={loadingValves}
+          isAdvisor={isAdvisor}
+          feedback={activeFeedback}
+          onDismissFeedback={dismissFeedback}
+          onOpenCommandModal={(valve) => {
+            setSelectedValveForCommand(valve);
+            setShowCommandModal(true);
+          }}
+          onResolvePending={resolvePendingCommand}
+        />
       </ScrollView>
 
       {/* Modal para Editar Umbrales */}
@@ -280,6 +302,17 @@ export default function PlotDetailScreen() {
           }}
         />
       )}
+
+      {/* Modal para Emisión de Comandos de Riego con Idempotencia (RF-14, RF-16) */}
+      <IrrigationCommandModal
+        visible={showCommandModal}
+        valve={selectedValveForCommand}
+        isAdvisor={isAdvisor}
+        onClose={() => setShowCommandModal(false)}
+        onSubmit={async (params) => {
+          await sendCommand(params);
+        }}
+      />
     </SafeAreaView>
   );
 }
