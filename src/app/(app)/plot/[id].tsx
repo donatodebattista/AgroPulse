@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,87 +11,106 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
-import { PlotWithStatus } from '@/types/database.types';
-import { getSemaforoInfo, calculatePlotStatus } from '@/utils/semaforo';
+import { Plot } from '@/types/database.types';
+import { getSemaforoInfo } from '@/utils/semaforo';
 import { useLocation } from '@/hooks/use-location';
+import { useAuth } from '@/context/auth-context';
+import { usePlotTelemetry } from '@/hooks/use-plot-telemetry';
+import { MoistureChart } from '@/components/telemetry/moisture-chart';
+import { ThresholdEditorModal } from '@/components/telemetry/threshold-editor-modal';
 
 export default function PlotDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [plot, setPlot] = useState<PlotWithStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { currentRole } = useAuth();
 
-  const { currentPlot } = useLocation(plot ? [plot] : []);
+  const [plot, setPlot] = useState<Plot | null>(null);
+  const [loadingPlot, setLoadingPlot] = useState(true);
+  const [plotError, setPlotError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showThresholdModal, setShowThresholdModal] = useState(false);
 
-  useEffect(() => {
-    async function loadPlot() {
-      if (!id) return;
-      setLoading(true);
-      setError(null);
+  // Carga de metadatos del lote
+  const loadPlot = useCallback(async () => {
+    if (!id) return;
+    setLoadingPlot(true);
+    setPlotError(null);
 
-      try {
-        const { data, error: queryError } = await supabase
-          .from('plots_with_status')
-          .select('*')
-          .eq('id', id)
-          .single();
+    try {
+      const { data, error } = await supabase
+        .from('plots')
+        .select('*')
+        .eq('id', id)
+        .single();
 
-        if (queryError) {
-          setError(queryError.message);
-          return;
-        }
-
-        const dynamicStatus = calculatePlotStatus(
-          data.last_measured_at,
-          data.last_moisture_pct,
-          data.threshold_min,
-          data.threshold_max
-        );
-
-        setPlot({
-          ...data,
-          status: dynamicStatus,
-        });
-      } catch (err: any) {
-        setError(err?.message || 'Error al cargar el lote');
-      } finally {
-        setLoading(false);
-      }
+      if (error) throw error;
+      setPlot(data);
+    } catch (err: any) {
+      console.error('[PlotDetail] Error al cargar lote:', err);
+      setPlotError(err?.message || 'Error al cargar el lote');
+    } finally {
+      setLoadingPlot(false);
     }
-
-    loadPlot();
   }, [id]);
 
+  useEffect(() => {
+    loadPlot();
+  }, [loadPlot]);
+
+  // Hook de Telemetría en Tiempo Real (RF-08, RF-09, RF-10, Supabase Realtime)
+  const thresholdMin = plot?.threshold_min ?? 25;
+  const thresholdMax = plot?.threshold_max ?? 45;
+
+  const {
+    stations,
+    readings,
+    latestReading,
+    status,
+    isLoading: loadingTelemetry,
+    error: telemetryError,
+    ageText,
+    isRealtimeActive,
+    refreshTelemetry,
+  } = usePlotTelemetry(id as string, thresholdMin, thresholdMax);
+
+  // Hook de Geolocalización (RF-06)
+  const { currentPlot } = useLocation(plot ? [{ ...plot, geojson: null, status: 'optimal', last_measured_at: null, last_moisture_pct: null, last_temp_c: null, last_rain_mm: null }] : []);
   const isUserHere = currentPlot?.id === id;
 
-  if (loading) {
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([loadPlot(), refreshTelemetry()]);
+    setRefreshing(false);
+  };
+
+  const isProducer = currentRole === 'producer';
+  const semaforo = getSemaforoInfo(status);
+
+  if (loadingPlot) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#166534" />
-          <Text style={styles.loadingText}>Cargando detalle del lote...</Text>
+          <Text style={styles.loadingText}>Cargando información del lote...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (error || !plot) {
+  if (plotError || !plot) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.centerContainer}>
           <Text style={styles.errorEmoji}>⚠️</Text>
-          <Text style={styles.errorText}>No se pudo encontrar el lote</Text>
-          <Text style={styles.errorSubtext}>{error}</Text>
+          <Text style={styles.errorText}>Lote no disponible</Text>
+          <Text style={styles.errorSubtext}>{plotError || 'No se encontró la parcela solicitada.'}</Text>
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-            <Text style={styles.backBtnText}>Volver</Text>
+            <Text style={styles.backBtnText}>Volver a Lotes</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
-
-  const semaforo = getSemaforoInfo(plot.status);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -100,21 +120,31 @@ export default function PlotDetailScreen() {
           <Text style={styles.backIcon}>← Volver</Text>
         </TouchableOpacity>
         <Text style={styles.navTitle} numberOfLines={1}>{plot.name}</Text>
-        <View style={{ width: 60 }} />
+        <View style={styles.realtimeTag}>
+          <View style={[styles.realtimeDot, isRealtimeActive && styles.realtimeDotActive]} />
+          <Text style={styles.realtimeText}>
+            {isRealtimeActive ? 'Realtime' : 'Conectando'}
+          </Text>
+        </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Cabecera del Lote */}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#166534']} />
+        }
+      >
+        {/* Cabecera del Lote y Semáforo */}
         <View style={styles.headerCard}>
           <View style={styles.headerRow}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.plotTitle}>{plot.name}</Text>
               <Text style={styles.cropSubtitle}>
                 {plot.crop ? `Cultivo: ${plot.crop}` : 'Sin cultivo especificado'}
               </Text>
             </View>
 
-            {/* Badge Semáforo */}
+            {/* Badge Semáforo (§8 y RF-12) */}
             <View
               style={[
                 styles.statusBadge,
@@ -128,79 +158,128 @@ export default function PlotDetailScreen() {
             </View>
           </View>
 
-          {/* Detección GPS del Dispositivo (RF-06) */}
+          {/* Detección de Presencia GPS (RF-06) */}
           <View style={[styles.gpsTag, isUserHere ? styles.gpsTagHere : styles.gpsTagNotHere]}>
             <Text style={[styles.gpsTagText, isUserHere ? styles.gpsTextHere : styles.gpsTextNotHere]}>
               {isUserHere
-                ? '📍 Estás ubicado dentro de este lote'
+                ? '📍 Estás ubicado físicamente dentro de este lote'
                 : '🧭 Estás fuera del perímetro de este lote'}
             </Text>
           </View>
         </View>
 
-        {/* Tarjeta de Humedad y Umbrales (RF-08, RF-11, RF-12) */}
+        {/* Métrica de Humedad Actual y Antigüedad (RF-09) */}
         <View style={styles.card}>
-          <Text style={styles.cardHeading}>Monitoreo de Humedad de Suelo</Text>
-          <Text style={styles.statusDescription}>{semaforo.description}</Text>
+          <View style={styles.cardHeaderWithAction}>
+            <View>
+              <Text style={styles.cardHeading}>Estado de Humedad Actual</Text>
+              <Text style={styles.statusDescription}>{semaforo.description}</Text>
+            </View>
+          </View>
 
           <View style={styles.gaugeContainer}>
             <Text style={[styles.currentMoisture, { color: semaforo.polygonStroke }]}>
-              {plot.last_moisture_pct !== null && plot.last_moisture_pct !== undefined
-                ? `${plot.last_moisture_pct.toFixed(1)}%`
+              {latestReading?.moisture_pct !== null && latestReading?.moisture_pct !== undefined
+                ? `${latestReading.moisture_pct.toFixed(1)}%`
                 : '--%'}
             </Text>
-            <Text style={styles.gaugeSub}>Humedad Volumétrica Actual</Text>
+            <Text style={styles.gaugeSub}>Humedad Volumétrica</Text>
+
+            {/* Antigüedad de la lectura (RF-09: "hace 12 s / hace 2 h") */}
+            <View style={styles.agePill}>
+              <Text style={styles.ageText}>⏱️ {ageText}</Text>
+            </View>
           </View>
 
-          {/* Comparación visual con umbrales */}
+          {/* Umbrales Configurables (RF-11) */}
           <View style={styles.thresholdsGrid}>
             <View style={styles.thresholdItem}>
               <Text style={styles.thLabel}>Umbral Mínimo</Text>
-              <Text style={styles.thValue}>{plot.threshold_min}%</Text>
-              <Text style={styles.thNote}>Bajo este nivel: Seco</Text>
+              <Text style={[styles.thValue, { color: '#dc2626' }]}>{plot.threshold_min}%</Text>
+              <Text style={styles.thNote}>Humedad &lt; {plot.threshold_min}% → Seco</Text>
             </View>
 
             <View style={styles.thresholdItem}>
               <Text style={styles.thLabel}>Umbral Máximo</Text>
-              <Text style={styles.thValue}>{plot.threshold_max}%</Text>
-              <Text style={styles.thNote}>Sobre este nivel: Húmedo</Text>
+              <Text style={[styles.thValue, { color: '#2563eb' }]}>{plot.threshold_max}%</Text>
+              <Text style={styles.thNote}>Humedad &gt; {plot.threshold_max}% → Húmedo</Text>
             </View>
           </View>
+
+          {/* Botón para Editar Umbrales (Solo Productor) */}
+          <TouchableOpacity
+            style={[styles.editThresholdBtn, !isProducer && styles.editThresholdBtnDisabled]}
+            onPress={() => setShowThresholdModal(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.editThresholdBtnText}>
+              {isProducer ? '⚙️ Configurar Umbrales de Riego (RF-11)' : '🔒 Umbrales protegidos (Solo Productor)'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Condiciones Ambientales Recientes */}
+        {/* Gráfico de Humedad de las Últimas 6 Horas (RF-10) */}
+        <MoistureChart
+          readings={readings}
+          thresholdMin={plot.threshold_min}
+          thresholdMax={plot.threshold_max}
+        />
+
+        {/* Telemetría Ambiental de Estaciones (RF-08) */}
         <View style={styles.card}>
-          <Text style={styles.cardHeading}>Telemetría de la Estación</Text>
+          <Text style={styles.cardHeading}>Estaciones de Monitoreo ({stations.length})</Text>
+          <Text style={styles.cardSubtitle}>
+            {stations.map((s) => s.name).join(', ') || 'Sin estación asociada'}
+          </Text>
+
           <View style={styles.envGrid}>
             <View style={styles.envItem}>
               <Text style={styles.envIcon}>🌡️</Text>
-              <Text style={styles.envLabel}>Temperatura</Text>
+              <Text style={styles.envLabel}>Temperatura Suelo</Text>
               <Text style={styles.envValue}>
-                {plot.last_temp_c !== null ? `${plot.last_temp_c.toFixed(1)} °C` : '--'}
+                {latestReading?.temp_c !== null && latestReading?.temp_c !== undefined
+                  ? `${latestReading.temp_c.toFixed(1)} °C`
+                  : '--'}
               </Text>
             </View>
 
             <View style={styles.envItem}>
               <Text style={styles.envIcon}>🌧️</Text>
-              <Text style={styles.envLabel}>Precipitaciones</Text>
+              <Text style={styles.envLabel}>Lluvia Acumulada</Text>
               <Text style={styles.envValue}>
-                {plot.last_rain_mm !== null ? `${plot.last_rain_mm.toFixed(1)} mm` : '0.0 mm'}
+                {latestReading?.rain_mm !== null && latestReading?.rain_mm !== undefined
+                  ? `${latestReading.rain_mm.toFixed(1)} mm`
+                  : '0.0 mm'}
               </Text>
             </View>
           </View>
         </View>
 
-        {/* Sección Preparada para Iteración 4 y 5 */}
+        {/* Banner para la Iteración 5 */}
         <View style={styles.nextCard}>
-          <Text style={styles.nextTitle}>Próximas Funcionalidades del Lote</Text>
-          <Text style={styles.nextBullet}>
-            📈 <Text style={styles.bold}>Iteración 4:</Text> Gráfico de series temporales de humedad (últimas 6h) y actualización Realtime.
-          </Text>
-          <Text style={styles.nextBullet}>
-            🚰 <Text style={styles.bold}>Iteración 5:</Text> Estado de válvulas simuladas y orden de irrigación con acuse de comando.
+          <Text style={styles.nextTitle}>Módulo de Riego (Siguiente Paso)</Text>
+          <Text style={styles.nextText}>
+            En la <Text style={{ fontWeight: 'bold' }}>Iteración 5</Text> implementaremos las válvulas del lote,
+            el formulario de comando de riego con duración (1–120 min) y el acuse asíncrono en ≤ 5 s (RF-13 a RF-16).
           </Text>
         </View>
       </ScrollView>
+
+      {/* Modal para Editar Umbrales */}
+      {plot && (
+        <ThresholdEditorModal
+          visible={showThresholdModal}
+          plotId={plot.id}
+          plotName={plot.name}
+          currentMin={plot.threshold_min}
+          currentMax={plot.threshold_max}
+          isProducer={isProducer}
+          onClose={() => setShowThresholdModal(false)}
+          onSuccess={(newMin, newMax) => {
+            setPlot((prev) => (prev ? { ...prev, threshold_min: newMin, threshold_max: newMax } : prev));
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -236,6 +315,7 @@ const styles = StyleSheet.create({
     color: '#64748b',
     marginTop: 4,
     marginBottom: 16,
+    textAlign: 'center',
   },
   backBtn: {
     backgroundColor: '#166534',
@@ -259,7 +339,6 @@ const styles = StyleSheet.create({
   },
   backButton: {
     paddingVertical: 4,
-    paddingHorizontal: 8,
   },
   backIcon: {
     fontSize: 14,
@@ -270,7 +349,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#0f172a',
-    maxWidth: '60%',
+    maxWidth: '50%',
+  },
+  realtimeTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  realtimeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#94a3b8',
+  },
+  realtimeDotActive: {
+    backgroundColor: '#22c55e',
+  },
+  realtimeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
   },
   scrollContent: {
     padding: 16,
@@ -339,14 +441,24 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#ffffff',
     borderRadius: 16,
-    padding: 18,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+  },
+  cardHeaderWithAction: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
   cardHeading: {
     fontSize: 16,
     fontWeight: '700',
     color: '#0f172a',
+  },
+  cardSubtitle: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
   },
   statusDescription: {
     fontSize: 13,
@@ -355,7 +467,7 @@ const styles = StyleSheet.create({
   },
   gaugeContainer: {
     alignItems: 'center',
-    paddingVertical: 18,
+    paddingVertical: 14,
   },
   currentMoisture: {
     fontSize: 48,
@@ -368,10 +480,22 @@ const styles = StyleSheet.create({
     color: '#64748b',
     marginTop: 2,
   },
+  agePill: {
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  ageText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+  },
   thresholdsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingTop: 14,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#f1f5f9',
     gap: 12,
@@ -379,43 +503,61 @@ const styles = StyleSheet.create({
   thresholdItem: {
     flex: 1,
     backgroundColor: '#f8fafc',
-    padding: 12,
+    padding: 10,
     borderRadius: 10,
     alignItems: 'center',
   },
   thLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#64748b',
   },
   thValue: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#1e293b',
     marginVertical: 2,
   },
   thNote: {
     fontSize: 10,
     color: '#94a3b8',
+    textAlign: 'center',
+  },
+  editThresholdBtn: {
+    marginTop: 12,
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  editThresholdBtnDisabled: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
+  },
+  editThresholdBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#166534',
   },
   envGrid: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginTop: 14,
+    marginTop: 12,
   },
   envItem: {
     alignItems: 'center',
     flex: 1,
   },
   envIcon: {
-    fontSize: 24,
+    fontSize: 22,
     marginBottom: 4,
   },
   envLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#64748b',
   },
   envValue: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: '#0f172a',
     marginTop: 2,
@@ -426,21 +568,17 @@ const styles = StyleSheet.create({
     borderColor: '#bbf7d0',
     borderRadius: 16,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   nextTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: '#166534',
-    marginBottom: 8,
-  },
-  nextBullet: {
-    fontSize: 13,
-    color: '#15803d',
-    lineHeight: 20,
     marginBottom: 4,
   },
-  bold: {
-    fontWeight: '700',
+  nextText: {
+    fontSize: 12,
+    color: '#15803d',
+    lineHeight: 18,
   },
 });
