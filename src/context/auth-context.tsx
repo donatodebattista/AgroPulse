@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { Session, User } from '@supabase/supabase-js';
 import { supabase, customStorage } from '@/lib/supabase';
 import { Membership, Organization, UserRole } from '@/types/database.types';
+import { withClockSkewRetry } from '@/utils/supabase-retry';
 
 interface AuthContextType {
   session: Session | null;
@@ -29,22 +30,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchMemberships = useCallback(async (userId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('memberships')
-        .select(`
-          id,
-          user_id,
-          organization_id,
-          role,
-          created_at,
-          organization:organizations (
+      const { data, error } = await withClockSkewRetry(() =>
+        supabase
+          .from('memberships')
+          .select(`
             id,
-            name,
-            region,
-            created_at
-          )
-        `)
-        .eq('user_id', userId);
+            user_id,
+            organization_id,
+            role,
+            created_at,
+            organization:organizations (
+              id,
+              name,
+              region,
+              created_at
+            )
+          `)
+          .eq('user_id', userId)
+      );
 
       if (error) {
         console.error('[AuthContext] Error fetching memberships:', error.message);
