@@ -238,8 +238,8 @@ export default function PlotDetailScreen() {
         {/* Gráfico de Humedad de las Últimas 6 Horas (RF-10) */}
         <MoistureChart
           readings={readings}
-          thresholdMin={plot.threshold_min}
-          thresholdMax={plot.threshold_max}
+          thresholdMin={thresholdMin}
+          thresholdMax={thresholdMax}
         />
 
         {/* Telemetría Ambiental de Estaciones (RF-08) */}

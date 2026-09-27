@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -30,10 +30,18 @@ export function ThresholdEditorModal({
   onClose,
   onSuccess,
 }: ThresholdEditorModalProps) {
-  const [min, setMin] = useState<number>(currentMin);
-  const [max, setMax] = useState<number>(currentMax);
+  const [min, setMin] = useState<number>(Number(currentMin) || 25);
+  const [max, setMax] = useState<number>(Number(currentMax) || 45);
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (visible) {
+      setMin(Number(currentMin) || 25);
+      setMax(Number(currentMax) || 45);
+      setErrorMsg(null);
+    }
+  }, [visible, currentMin, currentMax]);
 
   const handleSave = async () => {
     if (min >= max) {
