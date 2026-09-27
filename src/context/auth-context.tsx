@@ -102,8 +102,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // 2. Suscribirse a cambios en la sesión de Auth
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, currentSession) => {
+      async (event, currentSession) => {
         if (!isMounted) return;
+        if (event === 'SIGNED_IN') {
+          setIsLoading(true);
+        }
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
@@ -114,7 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setActiveOrgId(null);
           await customStorage.removeItem(ACTIVE_ORG_STORAGE_KEY);
         }
-        setIsLoading(false);
+        if (isMounted) setIsLoading(false);
       }
     );
 

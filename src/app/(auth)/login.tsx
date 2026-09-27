@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -11,13 +11,22 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/context/auth-context';
 
 export default function LoginScreen() {
+  const { session } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (session) {
+      router.replace('/' as any);
+    }
+  }, [session]);
 
   const handleLogin = async (loginEmail?: string, loginPassword?: string) => {
     const targetEmail = loginEmail ?? email.trim();
@@ -32,7 +41,7 @@ export default function LoginScreen() {
     setErrorMessage(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: targetEmail,
         password: targetPassword,
       });
@@ -43,10 +52,12 @@ export default function LoginScreen() {
         } else {
           setErrorMessage(error.message);
         }
+        setLoading(false);
+      } else if (data.session) {
+        router.replace('/' as any);
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Ocurrió un error inesperado al iniciar sesión');
-    } finally {
       setLoading(false);
     }
   };
