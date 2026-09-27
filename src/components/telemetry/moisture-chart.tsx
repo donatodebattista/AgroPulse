@@ -39,7 +39,21 @@ export function MoistureChart({ readings, thresholdMin, thresholdMax }: Moisture
   const innerWidth = Math.max(100, containerWidth - paddingLeft - paddingRight);
   const innerHeight = chartHeight - paddingTop - paddingBottom;
 
-  if (readings.length === 0) {
+  const safeThresholdMin =
+    typeof thresholdMin === 'number' && !isNaN(thresholdMin)
+      ? thresholdMin
+      : Number(thresholdMin) || 25;
+  const safeThresholdMax =
+    typeof thresholdMax === 'number' && !isNaN(thresholdMax)
+      ? thresholdMax
+      : Number(thresholdMax) || 45;
+
+  // Filtrar lecturas válidas con valor numérico de humedad
+  const validReadings = (readings || []).filter(
+    (r) => r && r.moisture_pct !== null && r.moisture_pct !== undefined && !isNaN(Number(r.moisture_pct))
+  );
+
+  if (validReadings.length === 0) {
     return (
       <View style={styles.emptyContainer} onLayout={onLayout}>
         <Text style={styles.emptyIcon}>📈</Text>
@@ -50,26 +64,30 @@ export function MoistureChart({ readings, thresholdMin, thresholdMax }: Moisture
   }
 
   // Escalas de datos
-  const moistureValues = readings.map((r) => r.moisture_pct);
-  const minVal = Math.min(thresholdMin - 5, ...moistureValues);
-  const maxVal = Math.max(thresholdMax + 5, ...moistureValues);
+  const moistureValues = validReadings.map((r) => Number(r.moisture_pct));
+  const minVal = Math.min(safeThresholdMin - 5, ...moistureValues);
+  const maxVal = Math.max(safeThresholdMax + 5, ...moistureValues);
 
   const yMin = Math.max(0, Math.floor(minVal / 5) * 5);
   const yMax = Math.min(100, Math.ceil(maxVal / 5) * 5);
-  const yRange = yMax - yMin || 1;
+  const yRange = yMax - yMin > 0 ? yMax - yMin : 1;
 
-  const getY = (val: number) => {
-    const clamped = Math.max(yMin, Math.min(yMax, val));
-    return paddingTop + innerHeight - ((clamped - yMin) / yRange) * innerHeight;
+  const getY = (val: number | string) => {
+    const num = Number(val);
+    const safeVal = isNaN(num) ? yMin : num;
+    const clamped = Math.max(yMin, Math.min(yMax, safeVal));
+    const result = paddingTop + innerHeight - ((clamped - yMin) / yRange) * innerHeight;
+    return isNaN(result) || !isFinite(result) ? paddingTop + innerHeight / 2 : result;
   };
 
   const getX = (index: number) => {
-    if (readings.length === 1) return paddingLeft + innerWidth / 2;
-    return paddingLeft + (index / (readings.length - 1)) * innerWidth;
+    if (validReadings.length <= 1) return paddingLeft + innerWidth / 2;
+    const result = paddingLeft + (index / (validReadings.length - 1)) * innerWidth;
+    return isNaN(result) || !isFinite(result) ? paddingLeft : result;
   };
 
   // Construcción de la línea y el área
-  const points = readings.map((r, i) => ({
+  const points = validReadings.map((r, i) => ({
     x: getX(i),
     y: getY(r.moisture_pct),
     reading: r,
@@ -79,12 +97,25 @@ export function MoistureChart({ readings, thresholdMin, thresholdMax }: Moisture
     return idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
   }, '');
 
-  const areaPathD = `${linePathD} L ${points[points.length - 1].x} ${paddingTop + innerHeight} L ${points[0].x} ${paddingTop + innerHeight} Z`;
+  const areaPathD =
+    points.length > 0
+      ? `${linePathD} L ${points[points.length - 1].x} ${paddingTop + innerHeight} L ${points[0].x} ${paddingTop + innerHeight} Z`
+      : '';
 
-  const yThresholdMin = getY(thresholdMin);
-  const yThresholdMax = getY(thresholdMax);
+  const yThresholdMin = getY(safeThresholdMin);
+  const yThresholdMax = getY(safeThresholdMax);
 
-  const selectedPoint = selectedIndex !== null ? points[selectedIndex] : points[points.length - 1];
+  const safeSelectedIndex =
+    selectedIndex !== null && selectedIndex >= 0 && selectedIndex < points.length
+      ? selectedIndex
+      : null;
+
+  const selectedPoint =
+    safeSelectedIndex !== null
+      ? points[safeSelectedIndex]
+      : points.length > 0
+      ? points[points.length - 1]
+      : null;
 
   const formatTime = (ts: string) => {
     const d = new Date(ts);
@@ -97,14 +128,14 @@ export function MoistureChart({ readings, thresholdMin, thresholdMax }: Moisture
         <View style={styles.titleCol}>
           <Text style={styles.title}>Tendencia de Humedad (Últimas 6 h)</Text>
           <Text style={styles.subtitle}>
-            {readings.length} mediciones registradas • Mínimo 12 puntos (RF-10)
+            {validReadings.length} mediciones registradas • Mínimo 12 puntos (RF-10)
           </Text>
         </View>
 
         {selectedPoint && (
           <View style={styles.highlightBadge}>
             <Text style={styles.highlightMoisture}>
-              {selectedPoint.reading.moisture_pct.toFixed(1)}%
+              {Number(selectedPoint.reading.moisture_pct).toFixed(1)}%
             </Text>
             <Text style={styles.highlightTime}>
               {formatTime(selectedPoint.reading.measured_at)}
@@ -166,7 +197,7 @@ export function MoistureChart({ readings, thresholdMin, thresholdMax }: Moisture
           textAnchor="end"
           fontWeight="bold"
         >
-          {`Mín: ${thresholdMin}%`}
+          {`Mín: ${safeThresholdMin}%`}
         </SvgText>
 
         {/* Línea de Umbral Máximo (Azul discontinuo) */}
@@ -187,26 +218,28 @@ export function MoistureChart({ readings, thresholdMin, thresholdMax }: Moisture
           textAnchor="end"
           fontWeight="bold"
         >
-          {`Máx: ${thresholdMax}%`}
+          {`Máx: ${safeThresholdMax}%`}
         </SvgText>
 
         {/* Área sombreada bajo la curva */}
-        <Path d={areaPathD} fill="url(#moistureGradient)" />
+        {areaPathD ? <Path d={areaPathD} fill="url(#moistureGradient)" /> : null}
 
         {/* Línea de la serie de tiempo */}
-        <Path d={linePathD} fill="none" stroke="#166534" strokeWidth="2.5" />
+        {linePathD ? <Path d={linePathD} fill="none" stroke="#166534" strokeWidth="2.5" /> : null}
 
         {/* Puntos de lectura interactivos */}
         {points.map((p, idx) => {
-          const isSelected = selectedIndex === idx;
-          const isDry = p.reading.moisture_pct < thresholdMin;
-          const isWet = p.reading.moisture_pct > thresholdMax;
+          const isSelected = safeSelectedIndex === idx;
+          const moisture = Number(p.reading.moisture_pct);
+          const isDry = moisture < safeThresholdMin;
+          const isWet = moisture > safeThresholdMax;
           const dotColor = isDry ? '#dc2626' : isWet ? '#2563eb' : '#166534';
+          const pointKey = p.reading?.id ? `point-${p.reading.id}` : `point-idx-${idx}`;
 
           return (
-            <G key={`point-${p.reading.id || idx}`}>
+            <G key={pointKey}>
               {isSelected && (
-                <Circle cx={p.x} cy={p.y} r="8" fill={dotColor} fillOpacity="0.25" />
+                <Circle cx={p.x} cy={p.y} r={8} fill={dotColor} fillOpacity={0.25} />
               )}
               <Circle
                 cx={p.x}
@@ -214,7 +247,7 @@ export function MoistureChart({ readings, thresholdMin, thresholdMax }: Moisture
                 r={isSelected ? 5 : 3.5}
                 fill={dotColor}
                 stroke="#ffffff"
-                strokeWidth="1.5"
+                strokeWidth={1.5}
               />
             </G>
           );
@@ -265,10 +298,10 @@ export function MoistureChart({ readings, thresholdMin, thresholdMax }: Moisture
         <View style={styles.pointsPills}>
           {points.slice(-6).map((p, idx, arr) => {
             const actualIdx = points.length - arr.length + idx;
-            const isSelected = selectedIndex === actualIdx;
+            const isSelected = safeSelectedIndex === actualIdx;
             return (
               <TouchableOpacity
-                key={actualIdx}
+                key={`pill-${p.reading?.id || actualIdx}`}
                 style={[styles.pill, isSelected && styles.pillActive]}
                 onPress={() => setSelectedIndex(actualIdx)}
               >
