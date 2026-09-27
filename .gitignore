@@ -42,3 +42,9 @@ example
 # generated native folders
 /ios
 /android
+
+# infra & backend worker
+infra/.env
+infra/**/node_modules/
+infra/**/dist/
+
