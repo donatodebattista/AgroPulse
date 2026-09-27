@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import { useDiagnostics } from '@/hooks/use-diagnostics';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
@@ -9,8 +11,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { useDiagnostics } from '@/hooks/use-diagnostics';
 
 export default function DiagnosticsScreen() {
   const router = useRouter();
@@ -59,7 +59,7 @@ export default function DiagnosticsScreen() {
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
           <Text style={styles.backBtnText}>← Volver</Text>
         </TouchableOpacity>
-        <Text style={styles.navTitle}>Diagnóstico y Métricas RNF</Text>
+        <Text style={styles.navTitle}>Diagnóstico y Métricas</Text>
         <View style={styles.realtimePill}>
           <View
             style={[
@@ -67,16 +67,16 @@ export default function DiagnosticsScreen() {
               realtimeStatus === 'connected'
                 ? styles.dotConnected
                 : realtimeStatus === 'connecting'
-                ? styles.dotConnecting
-                : styles.dotDisconnected,
+                  ? styles.dotConnecting
+                  : styles.dotDisconnected,
             ]}
           />
           <Text style={styles.realtimeText}>
             {realtimeStatus === 'connected'
               ? 'Realtime OK'
               : realtimeStatus === 'connecting'
-              ? 'Conectando...'
-              : 'Desconectado'}
+                ? 'Conectando...'
+                : 'Desconectado'}
           </Text>
         </View>
       </View>
@@ -144,9 +144,9 @@ export default function DiagnosticsScreen() {
           {/* Test de Latencia PostgREST */}
           <View style={styles.pingSection}>
             <View style={styles.pingRow}>
-              <View>
-                <Text style={styles.pingLabel}>Latencia PostgREST (Round-Trip Ping):</Text>
-                <Text style={styles.pingSubtitle}>Tiempo de respuesta HTTP hacia la API de Supabase</Text>
+              <View style={styles.pingTextCol}>
+                <Text style={styles.pingLabel}>Latencia PostgREST (Ping):</Text>
+                <Text style={styles.pingSubtitle}>Tiempo de respuesta HTTP hacia Supabase</Text>
               </View>
               <View style={[styles.badgePill, { backgroundColor: pingBadge.bg }]}>
                 <Text style={[styles.badgeText, { color: pingBadge.color }]}>{pingBadge.label}</Text>
@@ -172,7 +172,7 @@ export default function DiagnosticsScreen() {
           {/* Último Tick de Sensores Recibido (RNF-04) */}
           <View style={styles.tickSection}>
             <View style={styles.tickHeaderRow}>
-              <Text style={styles.tickSectionTitle}>Último Tick de Sensor (Supabase Realtime)</Text>
+              <Text style={styles.tickSectionTitle}>Último Tick de Sensor (Realtime)</Text>
               <View style={styles.countPill}>
                 <Text style={styles.countPillText}>{tickCount} recibidos</Text>
               </View>
@@ -181,7 +181,7 @@ export default function DiagnosticsScreen() {
             {lastTick ? (
               <View style={styles.tickCard}>
                 <View style={styles.tickTopRow}>
-                  <View>
+                  <View style={styles.tickStationCol}>
                     <Text style={styles.tickStationName}>{lastTick.stationName}</Text>
                     <Text style={styles.tickPlotName}>Lote: {lastTick.plotName}</Text>
                   </View>
@@ -199,7 +199,7 @@ export default function DiagnosticsScreen() {
                         lastTick.apparentLagMs <= 3000 ? styles.rnfTextOk : styles.rnfTextWarn,
                       ]}
                     >
-                      {lastTick.apparentLagMs <= 3000 ? '✅ RNF-04 Cumplido (≤ 3s)' : '⚠️ Lag > 3s'}
+                      {lastTick.apparentLagMs <= 3000 ? '✅ RNF-04 (≤ 3s)' : '⚠️ Lag > 3s'}
                     </Text>
                   </View>
                 </View>
@@ -212,7 +212,7 @@ export default function DiagnosticsScreen() {
                   </View>
 
                   <View style={styles.tickMetricItem}>
-                    <Text style={styles.tickMetricLabel}>🌡️ Temperatura</Text>
+                    <Text style={styles.tickMetricLabel}>🌡️ Temp.</Text>
                     <Text style={styles.tickMetricValue}>
                       {lastTick.reading.temp_c !== null ? `${lastTick.reading.temp_c.toFixed(1)} °C` : '--'}
                     </Text>
@@ -224,7 +224,7 @@ export default function DiagnosticsScreen() {
                   </View>
 
                   <View style={styles.tickMetricItem}>
-                    <Text style={styles.tickMetricLabel}>⏱️ Lag Aparente</Text>
+                    <Text style={styles.tickMetricLabel}>⏱️ Lag</Text>
                     <Text style={[styles.tickMetricValue, { color: '#0284c7' }]}>
                       {(lastTick.apparentLagMs / 1000).toFixed(2)} s
                     </Text>
@@ -288,72 +288,6 @@ export default function DiagnosticsScreen() {
           ) : (
             <ActivityIndicator size="small" color="#166534" />
           )}
-        </View>
-
-        {/* 4. Matriz de Cumplimiento de Requisitos No Funcionales (RNFs) */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardIcon}>📋</Text>
-            <Text style={styles.cardTitle}>Matriz de Verificación RNF</Text>
-          </View>
-
-          <View style={styles.rnfList}>
-            <View style={styles.rnfRow}>
-              <Text style={styles.rnfStatusIcon}>✅</Text>
-              <View style={styles.rnfCol}>
-                <Text style={styles.rnfName}>RNF-01: Stack Móvil Estricto</Text>
-                <Text style={styles.rnfDesc}>React Native (Expo SDK 57), TypeScript strict mode y Expo Router.</Text>
-              </View>
-            </View>
-
-            <View style={styles.rnfRow}>
-              <Text style={styles.rnfStatusIcon}>✅</Text>
-              <View style={styles.rnfCol}>
-                <Text style={styles.rnfName}>RNF-02: Seguridad y Frontera de Red</Text>
-                <Text style={styles.rnfDesc}>Sin service_role en el móvil; anon key + RLS; cliente Redpanda confinado al backend.</Text>
-              </View>
-            </View>
-
-            <View style={styles.rnfRow}>
-              <Text style={styles.rnfStatusIcon}>✅</Text>
-              <View style={styles.rnfCol}>
-                <Text style={styles.rnfName}>RNF-03: Tiempo de Carga Inicial</Text>
-                <Text style={styles.rnfDesc}>Carga de mapas, polígonos GeoJSON y semáforo operativo en &lt; 3 s.</Text>
-              </View>
-            </View>
-
-            <View style={styles.rnfRow}>
-              <Text style={styles.rnfStatusIcon}>✅</Text>
-              <View style={styles.rnfCol}>
-                <Text style={styles.rnfName}>RNF-04: Actualización en Tiempo Real</Text>
-                <Text style={styles.rnfDesc}>Transición visual de lecturas de sensores y comandos en UI en ≤ 3 s (≤ 5 s actuador).</Text>
-              </View>
-            </View>
-
-            <View style={styles.rnfRow}>
-              <Text style={styles.rnfStatusIcon}>✅</Text>
-              <View style={styles.rnfCol}>
-                <Text style={styles.rnfName}>RNF-05: Manejo de Errores Sin Spinner Infinito</Text>
-                <Text style={styles.rnfDesc}>Timeout de 10 s para órdenes pendientes y mitigación automática de desfasaje de reloj (PGRST303).</Text>
-              </View>
-            </View>
-
-            <View style={styles.rnfRow}>
-              <Text style={styles.rnfStatusIcon}>✅</Text>
-              <View style={styles.rnfCol}>
-                <Text style={styles.rnfName}>RNF-06: Reproducibilidad y Documentación</Text>
-                <Text style={styles.rnfDesc}>Datos semilla para Concordia, Entre Ríos, docker-compose.yml y README detallado.</Text>
-              </View>
-            </View>
-
-            <View style={styles.rnfRow}>
-              <Text style={styles.rnfStatusIcon}>✅</Text>
-              <View style={styles.rnfCol}>
-                <Text style={styles.rnfName}>RNF-10: Datos Ficticios / Ética</Text>
-                <Text style={styles.rnfDesc}>Declaración explícita de datos y coordenadas GPS didácticas para propósitos académicos.</Text>
-              </View>
-            </View>
-          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -500,6 +434,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 8,
+  },
+  pingTextCol: {
+    flex: 1,
+    paddingRight: 6,
   },
   pingLabel: {
     fontSize: 13,
@@ -513,8 +452,9 @@ const styles = StyleSheet.create({
   },
   badgePill: {
     paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 10,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    flexShrink: 0,
   },
   badgeText: {
     fontSize: 12,
@@ -546,17 +486,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 8,
   },
   tickSectionTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: '#1e293b',
+    flex: 1,
+    paddingRight: 6,
   },
   countPill: {
     backgroundColor: '#dbeafe',
-    paddingVertical: 2,
+    paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: 8,
+    flexShrink: 0,
   },
   countPillText: {
     color: '#1e40af',
@@ -575,6 +519,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    gap: 8,
+  },
+  tickStationCol: {
+    flex: 1,
+    paddingRight: 6,
   },
   tickStationName: {
     fontSize: 14,
@@ -590,6 +539,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: 6,
+    flexShrink: 0,
   },
   rnfBadgeOk: {
     backgroundColor: '#dcfce7',
@@ -618,6 +568,7 @@ const styles = StyleSheet.create({
   },
   tickMetricItem: {
     alignItems: 'center',
+    flex: 1,
   },
   tickMetricLabel: {
     fontSize: 11,

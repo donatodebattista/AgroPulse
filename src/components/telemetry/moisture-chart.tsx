@@ -94,7 +94,7 @@ export function MoistureChart({ readings, thresholdMin, thresholdMax }: Moisture
   return (
     <View style={styles.card} onLayout={onLayout}>
       <View style={styles.header}>
-        <View>
+        <View style={styles.titleCol}>
           <Text style={styles.title}>Tendencia de Humedad (Últimas 6 h)</Text>
           <Text style={styles.subtitle}>
             {readings.length} mediciones registradas • Mínimo 12 puntos (RF-10)
@@ -295,11 +295,16 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 8,
+    gap: 8,
+  },
+  titleCol: {
+    flex: 1,
+    paddingRight: 6,
   },
   title: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: '#0f172a',
   },
@@ -316,6 +321,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#bbf7d0',
+    flexShrink: 0,
   },
   highlightMoisture: {
     fontSize: 16,
