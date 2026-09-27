@@ -7,11 +7,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { AppHeader } from '@/components/common/app-header';
 import { useAuth } from '@/context/auth-context';
 import { useLocation } from '@/hooks/use-location';
 
 export default function AccountScreen() {
+  const router = useRouter();
   const { user, currentOrg, currentRole, memberships, switchOrganization, signOut } = useAuth();
   const { userLocation, locationError, currentPlot } = useLocation();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -120,6 +122,14 @@ export default function AccountScreen() {
                   {currentPlot ? `${currentPlot.name} (${currentPlot.id})` : 'Ninguno / Fuera de lote'}
                 </Text>
               </View>
+
+              <TouchableOpacity
+                style={styles.diagFullBtn}
+                onPress={() => router.push('/diagnostics' as any)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.diagFullBtnText}>📊 Abrir Panel de Métricas RNF y Streaming →</Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -297,6 +307,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 4,
+  },
+  diagFullBtn: {
+    marginTop: 8,
+    backgroundColor: '#166534',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  diagFullBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   logoutBtn: {
     backgroundColor: '#fee2e2',

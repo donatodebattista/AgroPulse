@@ -73,6 +73,13 @@ export default function AppLayout() {
           href: null, // Oculto de la barra inferior de navegación
         }}
       />
+
+      <Tabs.Screen
+        name="diagnostics"
+        options={{
+          href: null, // Oculto de la barra inferior de navegación
+        }}
+      />
     </Tabs>
   );
 }
