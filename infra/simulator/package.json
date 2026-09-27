@@ -1,0 +1,23 @@
+{
+  "name": "agropulse-telemetry-simulator",
+  "version": "1.0.0",
+  "description": "Simulador de sensores IoT y telemetría de suelo/clima para AgroPulse",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "dotenv": "^16.4.7",
+    "kafkajs": "^2.2.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/ws": "^8.5.14",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  }
+}

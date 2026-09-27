@@ -1,0 +1,94 @@
+services:
+  # ============================================================================
+  # 1. BROKER REDPANDA (Kafka-compatible, ultra-rápido, sin Zookeeper)
+  # ============================================================================
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.14
+    container_name: agropulse-redpanda
+    command:
+      - redpanda
+      - start
+      - --smp 1
+      - --memory 512M
+      - --overprovisioned
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --mode dev-container
+    ports:
+      - "19092:19092"
+      - "9644:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -i healthy || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+    networks:
+      - agropulse-network
+
+  # ============================================================================
+  # 2. CONSOLA VISUAL DE REDPANDA (Web UI para inspección de topics y lag)
+  # ============================================================================
+  console:
+    image: docker.redpanda.com/redpandadata/console:v2.7.2
+    container_name: agropulse-console
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - agropulse-network
+
+  # ============================================================================
+  # 3. SIMULADOR DE TELEMETRÍA IOT (Producer de soil.moisture y weather.tick)
+  # ============================================================================
+  simulator:
+    build:
+      context: ./simulator
+      dockerfile: Dockerfile
+    container_name: agropulse-simulator
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      TICK_INTERVAL_MS: 5000
+      SIMULATE_MONTE_A_STALE: "true"
+      SUPABASE_URL: ${SUPABASE_URL:-https://zwvlgzdeqpntjtetzvfj.supabase.co}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-sb_publishable_Td8mWTBE01MSUvEn5Ndumg_61Em9qy9}
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - agropulse-network
+
+  # ============================================================================
+  # 4. WORKER CONSUMER & ACTUADOR (Consumer Kafka -> Ingesta Supabase con service_role)
+  # ============================================================================
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: agropulse-worker
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      SUPABASE_URL: ${SUPABASE_URL:-https://zwvlgzdeqpntjtetzvfj.supabase.co}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SIMULATE_FAILURES: "false"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - agropulse-network
+
+volumes:
+  redpanda-data:
+
+networks:
+  agropulse-network:
+    driver: bridge
